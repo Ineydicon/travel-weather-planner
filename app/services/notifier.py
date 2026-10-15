@@ -1,14 +1,10 @@
-"""Клієнт Telegram Bot API (API 2): надсилання повідомлень.
-
-Токен передається параметром і НІКОЛИ не виводиться в повідомленнях про помилки.
-"""
 import httpx
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 
 
 class TelegramError(Exception):
-    """Telegram недоступний або відхилив запит."""
+    pass
 
 
 async def _call(token: str, method: str, payload: dict,
@@ -56,12 +52,10 @@ async def send_message(token: str, chat_id: int | str, text: str,
 
 
 async def answer_callback(token: str, callback_id: str, text: str = "") -> None:
-    """Прибирає «годинник» на натиснутій inline-кнопці."""
     await _call(token, "answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 
 
 async def get_updates(token: str, offset: int | None = None, timeout: int = 25) -> list[dict]:
-    """Long polling: Telegram тримає з'єднання до `timeout` секунд, поки не з'явиться повідомлення."""
     payload = {"timeout": timeout, "allowed_updates": ["message", "callback_query"]}
     if offset is not None:
         payload["offset"] = offset
@@ -69,19 +63,26 @@ async def get_updates(token: str, offset: int | None = None, timeout: int = 25) 
     return data.get("result", [])
 
 
+async def set_webhook(token: str, url: str, secret: str) -> None:
+    await _call(token, "setWebhook", {"url": url, "secret_token": secret,
+                                      "allowed_updates": ["message", "callback_query"]})
+
+
+async def get_webhook_url(token: str) -> str:
+    data = await _call(token, "getWebhookInfo", {})
+    return data.get("result", {}).get("url", "")
+
+
 async def delete_webhook(token: str) -> None:
-    """Webhook і long polling не можуть працювати одночасно — для локального запуску вимикаємо webhook."""
     await _call(token, "deleteWebhook", {})
 
 
 async def set_commands(token: str, commands: list[tuple[str, str]]) -> None:
-    """Реєструє меню команд, яке Telegram показує біля поля вводу."""
     await _call(token, "setMyCommands",
                 {"commands": [{"command": c, "description": d} for c, d in commands]})
 
 
 async def find_chats(token: str, client: httpx.AsyncClient | None = None) -> list[tuple[int, str]]:
-    """Повертає (chat_id, ім'я) усіх, хто нещодавно писав боту."""
     data = await _call(token, "getUpdates", {}, client)
     chats: dict[int, str] = {}
     for update in data.get("result", []):

@@ -1,10 +1,3 @@
-"""Скрипт інтеграції: Open-Meteo (API 1) -> обробка -> Telegram (API 2).
-
-Приклади запуску:
-    python integration.py Кропивницький
-    python integration.py Львів 2026-10-15 2026-10-17
-    python integration.py --find-chat-id
-"""
 import argparse
 import asyncio
 import sys
@@ -26,7 +19,6 @@ def step(n: int, text: str) -> None:
 
 
 async def run(city_name: str, date_from: date, date_to: date) -> None:
-    # 0. Перевірка вхідних даних і налаштувань
     PlanRequest(city=city_name, date_from=date_from, date_to=date_to)
     if not settings.telegram_bot_token:
         raise TelegramError("У файлі .env не задано TELEGRAM_BOT_TOKEN.")
@@ -34,20 +26,17 @@ async def run(city_name: str, date_from: date, date_to: date) -> None:
         raise TelegramError("У файлі .env не задано TELEGRAM_CHAT_ID. "
                             "Запустіть: python integration.py --find-chat-id")
 
-    # 1. API 1: координати міста
     step(1, f"Пошук міста «{city_name}» (Open-Meteo Geocoding)")
     city = (await search_cities(city_name, count=1))[0]
     place = ", ".join(p for p in (city.name, city.region, city.country) if p)
     print(f"      OK: {place} ({city.latitude:.2f}, {city.longitude:.2f})")
 
-    # 2. API 1: прогноз
-    step(2, f"Отримання прогнозу на {date_from:%d.%m} – {date_to:%d.%m} (Open-Meteo Forecast)")
+    step(2, f"Отримання прогнозу на {date_from:%d.%m} - {date_to:%d.%m} (Open-Meteo Forecast)")
     days = await get_forecast(city, date_from, date_to)
     for d in days:
         print(f"      {d.day:%d.%m}: {d.temp_min:+.0f}…{d.temp_max:+.0f} °C, "
               f"опади {d.precipitation_probability} %, вітер {d.wind_speed_max:.0f} м/с")
 
-    # 3. Обробка даних: валідація -> аналіз (статуси) -> чек-ліст
     step(3, "Аналіз даних і формування чек-листа")
     days = validate_forecast(days)
     alerts = build_alerts(days)
@@ -57,7 +46,6 @@ async def run(city_name: str, date_from: date, date_to: date) -> None:
     print(f"      OK: {len(checklist)} речей")
     message = format_plan_message(city, days, checklist, alerts)
 
-    # 4. API 2: надсилання в Telegram
     step(4, "Надсилання в Telegram (Bot API sendMessage)")
     await send_message(settings.telegram_bot_token, settings.telegram_chat_id, message)
     print("      OK: повідомлення доставлено\n")
@@ -94,7 +82,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")  # кирилиця та емодзі в консолі Windows
+        sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
     try:
         if args.find_chat_id:

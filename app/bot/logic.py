@@ -1,4 +1,3 @@
-"""Логіка Telegram-бота: команди, кнопки, підписки та планувальник розсилки."""
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -19,16 +18,16 @@ from app.storage import Subscription, SubscriptionStorage
 log = logging.getLogger("bot")
 
 HELP_TEXT = (
-    "Я — Travel Weather Planner 🧳\n"
+    "Я - Travel Weather Planner 🧳\n"
     "Аналізую прогноз погоди й підказую, що взяти з собою.\n\n"
     "Команди:\n"
-    "/weather Місто — погода на сьогодні\n"
-    "/plan Місто [дата] [дата] — поїздка, напр. /plan Львів 20.10 22.10\n"
-    "/subscribe Місто [година] — щоденна розсилка, напр. /subscribe Київ 7\n"
-    "/me — моя підписка\n"
-    "/unsubscribe — вимкнути розсилку\n"
-    "/simulate — демонстрація логіки на тестових даних\n"
-    "/help — ця довідка\n\n"
+    "/weather Місто - погода на сьогодні\n"
+    "/plan Місто [дата] [дата] - поїздка, напр. /plan Львів 20.10 22.10\n"
+    "/subscribe Місто [година] - щоденна розсилка, напр. /subscribe Київ 7\n"
+    "/me - моя підписка\n"
+    "/unsubscribe - вимкнути розсилку\n"
+    "/simulate - демонстрація логіки на тестових даних\n"
+    "/help - ця довідка\n\n"
     "Або просто напишіть назву міста 🙂"
 )
 
@@ -45,11 +44,10 @@ class BotApi(Protocol):
 
 
 class UserError(Exception):
-    """Помилка, яку треба просто показати користувачу."""
+    pass
 
 
 def parse_date(text: str, today: date) -> date:
-    """Приймає 2026-10-20, 20.10.2026 або 20.10 (поточний/наступний рік)."""
     text = text.strip()
     try:
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
@@ -76,13 +74,12 @@ class WeatherBot:
         self.search_cities = search_cities
         self.get_forecast = get_forecast
         self.watch_interval = watch_interval
-        self.state: dict[int, dict] = {}       # що бот очікує від користувача
+        self.state: dict[int, dict] = {}
         self._last_watch: datetime | None = None
 
     def today(self) -> date:
         return datetime.now(self.tz).date()
 
-    # ------------------------------------------------------------------ вхідні оновлення
     async def handle_update(self, update: dict) -> None:
         if cb := update.get("callback_query"):
             await self._handle_callback(cb)
@@ -143,7 +140,6 @@ class WeatherBot:
             await self.api.send(chat_id, "Невідома команда. Спробуйте /help")
 
     async def _free_text(self, chat_id: int, text: str) -> None:
-        """Текст без команди: відповідь на запитання бота або назва міста."""
         step = self.state.get(chat_id, {}).get("step")
         city = await self._find_city(text)
         if step == "trip_city":
@@ -158,7 +154,6 @@ class WeatherBot:
             self.state.pop(chat_id, None)
             await self._send_today(chat_id, city)
 
-    # ------------------------------------------------------------------ inline-кнопки
     async def _handle_callback(self, cb: dict) -> None:
         chat_id = cb["message"]["chat"]["id"]
         action, _, value = cb.get("data", "").partition(":")
@@ -182,7 +177,6 @@ class WeatherBot:
         except (weather.WeatherServiceError, InvalidForecastError, UserError) as e:
             await self.api.send(chat_id, f"❌ {e}")
 
-    # ------------------------------------------------------------------ сценарії
     async def _find_city(self, name: str) -> City:
         if len(name) < 2 or len(name) > 100:
             raise UserError("Назва міста має бути від 2 до 100 символів.")
@@ -211,7 +205,6 @@ class WeatherBot:
             self.state[chat_id] = {"step": "trip_city"}
             await self.api.send(chat_id, "🧳 Куди їдете? Напишіть назву міста.")
             return
-        # Місто може складатися з кількох слів: «Івано-Франківськ», «Кам'янець-Подільський», «Нью Йорк»
         parts = args.split()
         dates = []
         while parts and re.fullmatch(r"[\d.\-]+", parts[-1]) and len(dates) < 2:
@@ -228,7 +221,7 @@ class WeatherBot:
 
     async def _send_plan(self, chat_id: int, city: City, d1: date, d2: date) -> None:
         try:
-            PlanRequest(city=city.name, date_from=d1, date_to=d2)   # валідація дат
+            PlanRequest(city=city.name, date_from=d1, date_to=d2)
         except ValidationError as e:
             raise UserError("; ".join(err["msg"].removeprefix("Value error, ")
                                       for err in e.errors()))
@@ -236,7 +229,6 @@ class WeatherBot:
         text = format_plan_message(city, days, build_checklist(days), build_alerts(days))
         await self.api.send(chat_id, text, kb.MAIN_MENU)
 
-    # ------------------------------------------------------------------ підписка
     async def _subscribe_command(self, chat_id: int, args: str) -> None:
         if not args:
             self.state[chat_id] = {"step": "sub_city"}
@@ -263,7 +255,7 @@ class WeatherBot:
             chat_id,
             f"✅ Готово! Щодня о {hour:02d}:00 надсилатиму погоду в місті {city.name} "
             "і підказку, що взяти з собою.\n"
-            "Якщо вдень очікуватиметься небезпечна погода — надішлю попередження.",
+            "Якщо вдень очікуватиметься небезпечна погода - надішлю попередження.",
             kb.MAIN_MENU)
 
     async def _subscription_menu(self, chat_id: int) -> None:
@@ -296,7 +288,6 @@ class WeatherBot:
         await self.api.send(chat_id, "🔕 Щоденну розсилку вимкнено." if removed
                             else "У вас немає активної підписки.", kb.MAIN_MENU)
 
-    # ------------------------------------------------------------------ симуляція
     async def _simulation_menu(self, chat_id: int) -> None:
         await self.api.send(chat_id, "🧪 Оберіть, яку «відповідь API» імітувати.\n"
                                      "Бот проаналізує її так само, як справжній прогноз:",
@@ -311,16 +302,15 @@ class WeatherBot:
         if has_severe(alerts):
             await self.api.send(chat_id, format_alert_message(DEMO_CITY, alerts))
 
-    # ------------------------------------------------------------------ планувальник
     async def _send_morning(self, sub: Subscription) -> None:
         alerts = await self._send_today(sub.chat_id, sub.city, "☀️ Доброго ранку!")
         today = self.today()
         self.storage.mark_sent(sub.chat_id, today)
         if has_severe(alerts):
-            self.storage.mark_alerted(sub.chat_id, today)   # попередження вже було в ранковому
+            self.storage.mark_alerted(sub.chat_id, today)
 
     async def tick(self, now: datetime) -> None:
-        """Викликається з головного циклу. Розсилає ранкові прогнози й перевіряє небезпеки."""
+        # last_sent / last_alert не дають надіслати те саме двічі за день
         local = now.astimezone(self.tz)
         today = local.date()
         watch_due = self._last_watch is None or now - self._last_watch >= self.watch_interval
@@ -337,7 +327,7 @@ class WeatherBot:
                         log.info("попередження: chat %s (%s)", sub.chat_id, sub.city.name)
                         await self.api.send(sub.chat_id, format_alert_message(sub.city, alerts))
                         self.storage.mark_alerted(sub.chat_id, today)
-            except Exception as e:   # одна помилка не повинна зупиняти розсилку іншим
+            except Exception as e:
                 log.warning("помилка для chat %s: %s", sub.chat_id, e)
 
         if watch_due:

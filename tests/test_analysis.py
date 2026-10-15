@@ -1,4 +1,3 @@
-"""Тести аналітичної логіки: валідація даних і статуси-попередження."""
 from datetime import date
 
 import pytest
@@ -19,8 +18,6 @@ def day(**kw) -> DayForecast:
 def texts(days) -> str:
     return " ".join(a.text for a in build_alerts(days))
 
-
-# ---------- статуси (if-else логіка) ----------
 
 def test_rain_gives_umbrella_status():
     assert "Візьміть парасольку!" in texts([day(precipitation_probability=80)])
@@ -56,8 +53,6 @@ def test_dangerous_alerts_come_first():
     assert alerts[0].level == "danger"
 
 
-# ---------- валідація даних ----------
-
 def test_validate_detects_bad_values():
     assert validate_day(day(temp_min=20, temp_max=10))
     assert validate_day(day(precipitation_probability=150))
@@ -76,8 +71,6 @@ def test_validate_rejects_all_invalid():
     with pytest.raises(InvalidForecastError):
         validate_forecast([])
 
-
-# ---------- симуляція ----------
 
 @pytest.mark.parametrize("name,expected", [
     ("rain", "парасольку"), ("heat", "Спека"), ("frost", "Мороз"),

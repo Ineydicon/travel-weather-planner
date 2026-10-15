@@ -4,9 +4,141 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Travel Weather Planner</title>
+  <style>
+    :root {
+      --bg: #f4f1ea; --card: #fffdf8; --ink: #22262a; --muted: #6b6f73; --line: #e2ddd2;
+      --accent: #2f6f5e; --accent-ink: #fff; --warn: #a15c00; --warn-bg: #fff3df;
+      --danger: #b3261e; --danger-bg: #fde8e6; --info-bg: #e8f1ee;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16191b; --card: #1f2326; --ink: #ecebe7; --muted: #a2a6a9; --line: #33383c;
+        --accent: #5bb39a; --accent-ink: #0f1a17; --warn: #f0b35a; --warn-bg: #3a2c16;
+        --danger: #f2827a; --danger-bg: #3d1f1d; --info-bg: #1f3530;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+    h1 { font-size: 1.9rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+    .lead { color: var(--muted); margin: 0 0 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+            padding: 20px; margin-bottom: 16px; }
+    .bot { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+    .bot p { margin: 0; }
+    a.btn, button { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px;
+                    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+    button:disabled { opacity: .6; cursor: wait; }
+    form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; }
+    label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+    input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+            border-radius: 10px; padding: 9px 10px; width: 100%; }
+    @media (max-width: 600px) { form { grid-template-columns: 1fr 1fr; } form label:first-child, form button { grid-column: 1 / -1; } }
+    .error { color: var(--danger); margin: 12px 0 0; }
+    .alerts { display: grid; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
+    .alerts li { padding: 10px 12px; border-radius: 10px; background: var(--info-bg); }
+    .alerts li.warning { background: var(--warn-bg); color: var(--warn); }
+    .alerts li.danger { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+    .days { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .day { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .day b { display: block; }
+    .day .t { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .day small { color: var(--muted); display: block; }
+    h2 { font-size: 1.1rem; margin: 0 0 12px; }
+    h3 { font-size: .95rem; margin: 12px 0 4px; color: var(--muted); }
+    ul.items { margin: 0; padding-left: 20px; }
+    footer { color: var(--muted); font-size: .85rem; margin-top: 24px; }
+    footer a { color: var(--accent); }
+  </style>
 </head>
 <body>
+<main>
   <h1>Travel Weather Planner</h1>
-  <p>Інтерфейс буде на День 3. Документація API: <a href="/docs">/docs</a></p>
+  <p class="lead">Аналізує прогноз погоди й підказує, що взяти з собою - на поїздку або щоранку в Telegram.</p>
+
+  <section class="card bot">
+    <p>Щоденна розсилка, попередження про небезпечну погоду та план поїздки - у Telegram-боті.</p>
+    <a class="btn" href="https://t.me/trip_weather_helper_bot" target="_blank" rel="noopener">Відкрити бота</a>
+  </section>
+
+  <section class="card">
+    <form id="form">
+      <label>Місто<input id="city" required minlength="2" value="Кропивницький"></label>
+      <label>З<input id="from" type="date" required></label>
+      <label>По<input id="to" type="date" required></label>
+      <button id="go">Показати</button>
+    </form>
+    <p class="error" id="error" hidden></p>
+  </section>
+
+  <section class="card" id="result" hidden></section>
+
+  <footer>
+    Дані: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
+    <a href="/docs">Документація API</a> ·
+    <a href="https://github.com/Ineydicon/travel-weather-planner" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  $("from").value = iso(today);
+  $("to").value = iso(new Date(today.getTime() + 2 * 864e5));
+
+  const WEATHER = {0:"ясно",1:"переважно ясно",2:"мінлива хмарність",3:"хмарно",45:"туман",48:"туман",
+    51:"мряка",53:"мряка",55:"мряка",61:"невеликий дощ",63:"дощ",65:"сильний дощ",71:"невеликий сніг",
+    73:"сніг",75:"сильний сніг",80:"злива",81:"злива",82:"сильна злива",85:"снігопад",86:"снігопад",
+    95:"гроза",96:"гроза з градом",99:"гроза з градом"};
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const sign = (t) => (t > 0 ? "+" : "") + Math.round(t);
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("error").hidden = true; $("go").disabled = true; $("go").textContent = "Завантаження…";
+    try {
+      const r = await fetch("/api/v1/plan", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({city: $("city").value.trim(), date_from: $("from").value, date_to: $("to").value}),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        const msg = Array.isArray(data.detail)
+          ? data.detail.map((d) => d.msg.replace("Value error, ", "")).join("; ") : data.detail;
+        throw new Error(msg || "Помилка сервера");
+      }
+      render(data);
+    } catch (err) {
+      $("result").hidden = true;
+      $("error").textContent = err.message; $("error").hidden = false;
+    } finally {
+      $("go").disabled = false; $("go").textContent = "Показати";
+    }
+  });
+
+  function render(d) {
+    const days = d.days.map((x) => `
+      <div class="day"><b>${new Date(x.day).toLocaleDateString("uk-UA", {weekday: "short", day: "numeric", month: "short"})}</b>
+        <span class="t">${sign(x.temp_min)}…${sign(x.temp_max)}°</span>
+        <small>${WEATHER[x.weather_code] || "-"}</small>
+        <small>опади ${x.precipitation_probability}%</small>
+        <small>вітер ${Math.round(x.wind_speed_max)}&nbsp;м/с</small></div>`).join("");
+    const noEmoji = (t) => t.replace(/^[^\p{L}\p{N}]+/u, "");
+    const alerts = d.alerts.map((a) => `<li class="${a.level}">${esc(noEmoji(a.text))}</li>`).join("");
+    const groups = {};
+    d.checklist.forEach((i) => (groups[i.category] ||= []).push(i));
+    const items = Object.entries(groups).map(([cat, list]) =>
+      `<h3>${esc(cat)}</h3><ul class="items">${list.map((i) =>
+        `<li>${esc(i.item)} <small style="color:var(--muted)">- ${esc(i.reason)}</small></li>`).join("")}</ul>`).join("");
+    $("result").innerHTML = `
+      <h2>${[d.city.name, d.city.region, d.city.country].filter(Boolean).map(esc).join(", ")}</h2>
+      <ul class="alerts">${alerts}</ul>
+      <div class="days">${days}</div>
+      <h2>Що взяти</h2>${items}`;
+    $("result").hidden = false;
+  }
+</script>
 </body>
 </html>

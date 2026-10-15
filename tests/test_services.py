@@ -1,5 +1,3 @@
-"""Тести модулів інтеграції. Зовнішні API підмінюються (httpx.MockTransport),
-тому тести не потребують інтернету і не витрачають ліміти."""
 import asyncio
 from datetime import date
 
@@ -27,8 +25,6 @@ def day(**kw) -> DayForecast:
     base.update(kw)
     return DayForecast(**base)
 
-
-# ---------- Open-Meteo ----------
 
 def test_search_city_ok():
     def handler(request):
@@ -58,7 +54,7 @@ def test_forecast_ok():
     days = asyncio.run(get_forecast(CITY, date(2026, 10, 15), date(2026, 10, 16),
                                     client=mock_client(handler)))
     assert len(days) == 2
-    assert days[1].precipitation_probability == 0  # None -> 0
+    assert days[1].precipitation_probability == 0
     assert days[1].weather_code == 63
 
 
@@ -82,8 +78,6 @@ def test_rate_limit_is_handled():
         asyncio.run(search_cities("Львів", client=mock_client(handler)))
 
 
-# ---------- Telegram ----------
-
 def test_telegram_send_ok():
     def handler(request):
         assert request.url.path.endswith("/sendMessage")
@@ -95,7 +89,7 @@ def test_telegram_bad_token():
     handler = lambda request: httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
     with pytest.raises(TelegramError, match="токен") as e:
         asyncio.run(send_message("SECRET123", 123, "hi", client=mock_client(handler)))
-    assert "SECRET123" not in str(e.value)  # токен не потрапляє в повідомлення
+    assert "SECRET123" not in str(e.value)
 
 
 def test_telegram_chat_not_found():
@@ -104,8 +98,6 @@ def test_telegram_chat_not_found():
     with pytest.raises(TelegramError, match="/start"):
         asyncio.run(send_message("T", 1, "hi", client=mock_client(handler)))
 
-
-# ---------- Обробка даних ----------
 
 def test_checklist_rain_and_cold():
     items = {i.item for i in build_checklist([day(temp_min=4, precipitation_probability=80)])}
@@ -122,3 +114,58 @@ def test_message_contains_city_and_items():
     days = [day()]
     text = format_plan_message(CITY, days, build_checklist(days))
     assert "Кропивницький" in text and "Що взяти" in text
+
+
+def test_russian_city_name_is_normalized():
+    def handler(request):
+        assert request.url.params["name"] == "Київ"
+        return httpx.Response(200, json={"results": [{
+            "name": "Київ", "country": "Україна", "latitude": 50.45, "longitude": 30.52,
+            "timezone": "Europe/Kyiv", "population": 2797553}]})
+    city = asyncio.run(search_cities("Киев", count=1, client=mock_client(handler)))[0]
+    assert city.country == "Україна"
+
+
+def test_biggest_city_is_chosen():
+    handler = lambda request: httpx.Response(200, json={"results": [
+        {"name": "Odessa", "country": "США", "latitude": 31.8, "longitude": -102.3,
+         "timezone": "America/Chicago", "population": 99940},
+        {"name": "Одеса", "country": "Україна", "latitude": 46.48, "longitude": 30.72,
+         "timezone": "Europe/Kyiv", "population": 1015826}]})
+    city = asyncio.run(search_cities("Odessa", count=1, client=mock_client(handler)))[0]
+    assert city.country == "Україна"
+
+
+def test_transliteration_fallback_for_small_places():
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.params["name"])
+        if request.url.params["name"] == "Velyka Vyska":
+            return httpx.Response(200, json={"results": [{
+                "name": "Велика Виска", "country": "Україна", "latitude": 48.5,
+                "longitude": 31.9, "timezone": "Europe/Kyiv"}]})
+        return httpx.Response(200, json={})
+    city = asyncio.run(search_cities("Велика Виска", count=1, client=mock_client(handler)))[0]
+    assert seen == ["Велика Виска", "Velyka Vyska"] and city.name == "Велика Виска"
+
+
+def test_query_cleanup():
+    from app.services.weather import normalize_city, transliterate
+    assert normalize_city("м. Буча") == "Буча"
+    assert normalize_city("Львів, Україна") == "Львів"
+    assert normalize_city("Слов’янськ") == "Слов'янськ"
+    assert transliterate("Слов'янськ") == "Sloviansk"
+    assert transliterate("Згурівка") == "Zghurivka"
+
+
+def test_openstreetmap_fallback_for_foreign_names():
+    def handler(request):
+        if request.url.host == "nominatim.openstreetmap.org":
+            assert request.headers["User-Agent"].startswith("TravelWeatherPlanner")
+            return httpx.Response(200, json=[{
+                "name": "Лісабон", "lat": "38.7077", "lon": "-9.1365",
+                "address": {"country": "Португалія", "state": "Лісабон"}}])
+        return httpx.Response(200, json={})
+    city = asyncio.run(search_cities("Лісабон", count=1, client=mock_client(handler)))[0]
+    assert city.country == "Португалія" and round(city.longitude, 1) == -9.1

@@ -1,4 +1,3 @@
-"""Тести логіки бота з підробленими Telegram та Open-Meteo (без інтернету)."""
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
@@ -141,7 +140,7 @@ def test_simulation_storm_sends_warning(setup):
 def test_scheduler_sends_morning_once(setup):
     bot, api, storage = setup
     storage.upsert(1, KYIV, hour=7)
-    seven = datetime(2026, 10, 15, 4, 5, tzinfo=timezone.utc)   # 07:05 у Києві (UTC+3)
+    seven = datetime(2026, 10, 15, 4, 5, tzinfo=timezone.utc)
     run(bot.tick(seven))
     run(bot.tick(seven + timedelta(minutes=10)))
     morning = [t for _, t, _ in api.sent if "Доброго ранку" in t]
@@ -151,7 +150,7 @@ def test_scheduler_sends_morning_once(setup):
 def test_scheduler_not_at_other_hour(setup):
     bot, api, storage = setup
     storage.upsert(1, KYIV, hour=7)
-    run(bot.tick(datetime(2026, 10, 15, 2, 0, tzinfo=timezone.utc)))   # 05:00 у Києві
+    run(bot.tick(datetime(2026, 10, 15, 2, 0, tzinfo=timezone.utc)))
     assert not any("Доброго ранку" in t for _, t, _ in api.sent)
 
 
@@ -161,7 +160,7 @@ def test_scheduler_storm_warning_once():
     bot = WeatherBot(api, storage, search_cities=fake_search,
                      get_forecast=make_forecast(weather_code=95), watch_interval=timedelta(0))
     storage.upsert(1, KYIV, hour=7)
-    noon = datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)        # 12:00 у Києві
+    noon = datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)
     run(bot.tick(noon))
     run(bot.tick(noon + timedelta(hours=1)))
     warnings = [t for _, t, _ in api.sent if "ПОПЕРЕДЖЕННЯ" in t]
@@ -172,4 +171,16 @@ def test_parse_date():
     today = date(2026, 10, 15)
     assert parse_date("20.10", today) == date(2026, 10, 20)
     assert parse_date("2026-10-21", today) == date(2026, 10, 21)
-    assert parse_date("01.01", today) == date(2027, 1, 1)   # минула дата -> наступний рік
+    assert parse_date("01.01", today) == date(2027, 1, 1)
+
+
+def test_storage_sqlite_roundtrip(tmp_path=None):
+    import os, tempfile
+    path = os.path.join(tempfile.mkdtemp(), "sub.db")
+    s1 = SubscriptionStorage(f"sqlite:///{path}")
+    s1.upsert(42, KYIV, 7)
+    s1.mark_sent(42, date(2026, 10, 15))
+    s2 = SubscriptionStorage(f"sqlite:///{path}")
+    sub = s2.get(42)
+    assert sub.city.name == "Київ" and sub.hour == 7 and sub.last_sent == date(2026, 10, 15)
+    assert s2.delete(42) and s2.get(42) is None

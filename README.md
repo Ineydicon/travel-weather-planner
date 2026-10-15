@@ -1,19 +1,20 @@
-# 🧳 Travel Weather Planner — розумний помічник мандрівника
+# 🧳 Travel Weather Planner - розумний помічник мандрівника
 
 Telegram-бот, який аналізує прогноз погоди й підказує, що взяти з собою:
-- **на запит** — погода на сьогодні або план поїздки з чек-листом речей;
-- **за розкладом** — щоранку в обраний час надсилає прогноз, а вдень попереджає про небезпечну погоду (гроза, штормовий вітер, мороз, спека).
+- **на запит** - погода на сьогодні або план поїздки з чек-листом речей;
+- **за розкладом** - щоранку в обраний час надсилає прогноз, а вдень попереджає про небезпечну погоду (гроза, штормовий вітер, мороз, спека).
 
-**Telegram-бот:** [@trip_weather_helper_bot](https://t.me/trip_weather_helper_bot)
+**Telegram-бот:** [@trip_weather_helper_bot](https://t.me/trip_weather_helper_bot) · **Вебсайт:** _посилання з'явиться після розгортання_
 
 ## 📐 Архітектура системи
 
 ![Архітектурна схема](docs/architecture.png)
 
-1. **Користувач** працює з системою через вебсторінку або Telegram-бота.
-2. **Протоколи:** HTTPS REST (JSON) між фронтендом і бекендом та до зовнішніх API; Telegram надсилає оновлення на webhook бекенду (HTTPS POST).
-3. **Бекенд** (FastAPI) запитує в **API 1 (Open-Meteo)** координати міста і прогноз погоди, формує чек-ліст і відправляє його через **API 2 (Telegram Bot API)**.
-4. **Дані:** прогнози тимчасово кешуються в пам'яті (1 год), поїздки та `chat_id` користувачів зберігаються в SQLite.
+1. **Користувач** працює з ботом у Telegram або з вебсторінкою.
+2. **Протоколи:** HTTPS REST (JSON); Telegram надсилає повідомлення на **webhook** сервера (HTTPS POST із секретним заголовком).
+3. **Бекенд** (FastAPI у Docker-контейнері на Render) запитує в **API 1 (Open-Meteo)** координати міста й прогноз, **аналізує** дані (валідація, статуси-попередження), формує чек-ліст і відповідає через **API 2 (Telegram Bot API)**.
+4. **Планувальник:** GitHub Actions кожні 10 хв викликає `/api/v1/tick` - сервер розсилає ранкові прогнози й перевіряє небезпечну погоду.
+5. **Дані:** підписки - у PostgreSQL (Render), прогнози кешуються в пам'яті на 30 хв.
 
 Детальний аналіз предметної області: [`docs/day1-analysis.md`](docs/day1-analysis.md) · Схема API: [`docs/api.md`](docs/api.md)
 
@@ -21,9 +22,9 @@ Telegram-бот, який аналізує прогноз погоди й під
 
 - **Мова:** Python 3.12
 - **Фреймворк:** FastAPI + Uvicorn, httpx (HTTP-клієнт)
-- **База даних:** SQLite
+- **База даних:** PostgreSQL (хмара), SQLite (локально)
 - **Frontend:** HTML, CSS, JavaScript
-- **Розгортання:** Docker, Render.com
+- **Розгортання:** Docker, Render.com (Web Service), GitHub Actions (планувальник)
 
 **Інтегровані API:**
 
@@ -34,25 +35,26 @@ Telegram-бот, який аналізує прогноз погоди й під
 
 ## ✅ План реалізації
 
-**Вівторок — інтеграція з API та безпека**
+**Вівторок - інтеграція з API та безпека**
 - [x] Токен Telegram-бота (@BotFather), секрети лише у `.env`
 - [x] Перевірка запитів до Open-Meteo та Telegram у Postman
 - [x] Скрипт інтеграції [`integration.py`](integration.py): Open-Meteo → чек-ліст → Telegram
 - [x] Обробка помилок: мережа, тайм-аути, статус-коди, ліміти
 - [x] Схема API застосунку: [`docs/api.md`](docs/api.md)
 
-**Середа — логіка обробки даних та інтерфейс бота**
+**Середа - логіка обробки даних та інтерфейс бота**
 - [x] Аналітика: валідація даних з API, статуси-попередження ([`analysis.py`](app/services/analysis.py))
 - [x] Бот: команди `/start`, `/help`, Reply-меню та Inline-кнопки швидкого вибору
 - [x] Щоденна розсилка за підпискою + попередження про небезпечну погоду
 - [x] Автоматичний цикл [`bot.py`](bot.py): `while True` + long polling + планувальник
 - [x] Симуляція різних відповідей API для демонстрації логіки
 
-**Четвер — інтеграція та хмара**
-- [ ] `Dockerfile` та `docker-compose.yml`
-- [ ] Розгортання на Render (webhook), постійна база даних
+**Четвер - контейнеризація та розгортання**
+- [x] [`Dockerfile`](Dockerfile), [`.dockerignore`](.dockerignore), [`docker-compose.yml`](docker-compose.yml)
+- [x] Вебсервіс на Render: бот через webhook, вебсторінка, PostgreSQL для підписок
+- [x] Планувальник розсилки - [GitHub Actions](.github/workflows/scheduler.yml)
 
-**П'ятниця — тестування та звіт**
+**П'ятниця - тестування та звіт**
 - [ ] Тестування API
 - [ ] Оновлення README (інструкція запуску, посилання на демо)
 - [ ] Звіт і презентація
@@ -61,7 +63,7 @@ Telegram-бот, який аналізує прогноз погоди й під
 
 ### Telegram-бот (`python bot.py`)
 
-**Симуляція грози** — логіка аналізує «відповідь API», виставляє статуси й надсилає окреме попередження; **ранкова розсилка** за підпискою:
+**Симуляція грози** - логіка аналізує «відповідь API», виставляє статуси й надсилає окреме попередження; **ранкова розсилка** за підпискою:
 
 <p>
   <img src="docs/screenshots/bot-simulation-storm.png" alt="Симуляція грози" width="49%">
@@ -84,7 +86,7 @@ Telegram-бот, який аналізує прогноз погоди й під
   <img src="docs/screenshots/telegram-message.png" alt="Повідомлення в Telegram" width="40%">
 </p>
 
-**Обробка помилок** (неіснуюче місто — програма не падає):
+**Обробка помилок** (неіснуюче місто - програма не падає):
 
 ![Обробка помилок](docs/screenshots/error-handling.png)
 
@@ -125,7 +127,10 @@ travel-weather-planner/
 ├── static/                # фронтенд (HTML/CSS/JS)
 ├── tests/                 # тести (pytest)
 ├── docs/                  # схема архітектури, аналіз, опис API
-├── bot.py                 # запуск бота (головний цикл)
+├── .github/workflows/      # планувальник розсилки (GitHub Actions)
+├── Dockerfile             # інструкція збірки контейнера
+├── docker-compose.yml     # локальний запуск у Docker
+├── bot.py                 # локальний запуск бота (long polling)
 ├── integration.py         # разовий скрипт Open-Meteo → Telegram
 ├── requirements.txt
 └── .env.example
@@ -148,7 +153,7 @@ copy .env.example .env            # Windows (на Linux/macOS: cp .env.example .
 python integration.py --find-chat-id
 ```
 
-**Telegram-бот** (працює, доки відкрите вікно; зупинка — Ctrl+C):
+**Telegram-бот** (працює, доки відкрите вікно; зупинка - Ctrl+C):
 
 ```bash
 python bot.py
@@ -179,3 +184,20 @@ uvicorn app.main:app --reload
 - Документація API (Swagger UI): <http://localhost:8000/docs>
 - Перевірка стану: <http://localhost:8000/api/v1/health>
 - Тести: `pytest`
+
+## ☁️ Розгортання (Render.com)
+
+Безкоштовний тариф Render дозволяє **Web Service** і **PostgreSQL** (Background Worker - платний),
+тому бот працює через webhook у вебсервісі, а не через цикл опитування.
+
+| Що | Налаштування |
+|---|---|
+| PostgreSQL | New → Postgres, тариф Free → скопіювати *Internal Database URL* |
+| Web Service | New → Web Service → цей репозиторій, Runtime: **Docker**, тариф Free |
+| Environment | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `CRON_SECRET`, `DATABASE_URL` |
+| GitHub Secrets | `APP_URL` (адреса сервісу), `CRON_SECRET` - для планувальника |
+
+Після запуску сервіс сам реєструє webhook у Telegram (`setWebhook`). Обмеження безкоштовного тарифу:
+сервіс «засинає» через 15 хв без запитів (планувальник його будить), а безкоштовна база діє 30 днів.
+
+**Docker локально:** `docker compose up --build` → <http://localhost:8000>

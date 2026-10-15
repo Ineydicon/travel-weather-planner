@@ -1,4 +1,3 @@
-"""Симуляція різних відповідей API для демонстрації логіки (без реальних запитів)."""
 from datetime import date, timedelta
 
 from app.schemas import City, DayForecast
@@ -6,7 +5,6 @@ from app.schemas import City, DayForecast
 DEMO_CITY = City(name="Демо-місто", country="Симуляція", latitude=0, longitude=0,
                  timezone="Europe/Kyiv")
 
-# Назва сценарію -> параметри "відповіді API"
 SCENARIOS: dict[str, dict] = {
     "rain":  dict(title="☔ Злива", temp_min=8, temp_max=13, precipitation_sum=12.5,
                   precipitation_probability=95, wind_speed_max=7, uv_index_max=1, weather_code=65),

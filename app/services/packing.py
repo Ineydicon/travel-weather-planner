@@ -1,4 +1,3 @@
-"""Формування чек-листа речей на основі прогнозу погоди (обробка даних з API 1)."""
 from app.schemas import ChecklistItem, DayForecast
 
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
@@ -22,7 +21,6 @@ def build_checklist(days: list[DayForecast]) -> list[ChecklistItem]:
         for name in names:
             items.append(ChecklistItem(category=category, item=name, reason=reason))
 
-    # Одяг за температурою
     if t_min < 0:
         add("Одяг", ["Зимова куртка", "Шапка", "Рукавиці", "Термобілизна"],
             f"Мінімальна температура {t_min:.0f} °C")
@@ -34,7 +32,6 @@ def build_checklist(days: list[DayForecast]) -> list[ChecklistItem]:
         add("Одяг", ["Легкий одяг", "Головний убір"], f"Максимальна температура {t_max:.0f} °C")
         add("Здоров'я", ["Пляшка для води"], f"Спека до {t_max:.0f} °C")
 
-    # Опади, сніг, вітер, сонце
     if rain_prob >= 50 or rain_sum >= 1:
         add("Аксесуари", ["Парасолька", "Водонепроникне взуття"],
             f"Ймовірність опадів до {rain_prob} %")
@@ -46,7 +43,6 @@ def build_checklist(days: list[DayForecast]) -> list[ChecklistItem]:
         add("Аксесуари", ["Сонцезахисні окуляри"], f"UV-індекс до {uv:.0f}")
         add("Здоров'я", ["Сонцезахисний крем SPF 50"], f"UV-індекс до {uv:.0f}")
 
-    # Завжди
     add("Документи", ["Паспорт / ID-картка"], "Завжди")
     add("Аксесуари", ["Зарядний пристрій"], "Завжди")
     add("Здоров'я", ["Аптечка"], "Завжди")

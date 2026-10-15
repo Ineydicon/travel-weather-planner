@@ -1,40 +1,25 @@
-# Схема API — Travel Weather Planner
+# Схема API - Travel Weather Planner
 
-Базова адреса: `http://localhost:8000` (локально).
+Базова адреса: `http://localhost:8000` (локально) або публічна адреса на Render.
 Формат даних: JSON. Інтерактивна документація (Swagger UI) доступна після запуску за адресою **`/docs`**.
 
 ## Перелік ендпоінтів
 
-| Метод | Шлях | Призначення | Статус |
-|---|---|---|---|
-| `GET` | `/api/v1/health` | Перевірка стану сервісу | ✅ Працює |
-| `GET` | `/api/v1/cities?name=Львів` | Пошук міста (Open-Meteo Geocoding) | День 3 |
-| `POST` | `/api/v1/plan` | Прогноз погоди + чек-ліст для поїздки | День 3 |
-| `GET` | `/api/v1/trips/{trip_id}` | Отримати збережену поїздку | День 3 |
-| `POST` | `/api/v1/trips/{trip_id}/send` | Надіслати чек-ліст у Telegram | День 4 |
-| `POST` | `/telegram/webhook` | Приймання повідомлень від Telegram | День 4 |
+| Метод | Шлях | Призначення |
+|---|---|---|
+| `GET` | `/` | Вебсторінка з формою прогнозу |
+| `GET` | `/api/v1/health` | Перевірка стану сервісу |
+| `GET` | `/api/v1/cities?name=Львів` | Пошук міста (Open-Meteo Geocoding) |
+| `POST` | `/api/v1/plan` | Прогноз + статуси-попередження + чек-ліст |
+| `POST` | `/api/v1/tick` | Планувальник розсилки (викликає GitHub Actions, заголовок `X-Cron-Secret`) |
+| `POST` | `/telegram/webhook` | Приймання повідомлень від Telegram (заголовок `X-Telegram-Bot-Api-Secret-Token`) |
 
 ## Приклади
 
 ### `GET /api/v1/health`
 
 ```json
-{ "status": "ok", "version": "0.1.0" }
-```
-
-### `GET /api/v1/cities?name=Львів`
-
-```json
-[
-  {
-    "name": "Львів",
-    "country": "Україна",
-    "region": "Львівська область",
-    "latitude": 49.8383,
-    "longitude": 24.0232,
-    "timezone": "Europe/Kyiv"
-  }
-]
+{ "status": "ok", "version": "1.0.0" }
 ```
 
 ### `POST /api/v1/plan`
@@ -42,58 +27,44 @@
 Запит:
 
 ```json
-{ "city": "Львів", "date_from": "2026-10-20", "date_to": "2026-10-23" }
+{ "city": "Львів", "date_from": "2026-10-20", "date_to": "2026-10-22" }
 ```
 
-Правила перевірки (інакше `422 Unprocessable Entity`):
-- `date_to` не раніше за `date_from`;
-- `date_from` не в минулому;
-- `date_to` не далі ніж 16 днів від сьогодні (межа прогнозу Open-Meteo).
+Перевірка вхідних даних (інакше `422`): `date_to` не раніше за `date_from`, `date_from` не в минулому,
+`date_to` не далі ніж 16 днів від сьогодні (межа прогнозу Open-Meteo).
 
 Відповідь `200 OK`:
 
 ```json
 {
-  "trip_id": "3f9c2a1e-7b4d-4c8e-9a51-2d6f0b8e1c33",
   "city": { "name": "Львів", "country": "Україна", "region": "Львівська область",
             "latitude": 49.8383, "longitude": 24.0232, "timezone": "Europe/Kyiv" },
   "days": [
-    {
-      "day": "2026-10-20",
-      "temp_min": 6.2,
-      "temp_max": 14.8,
-      "precipitation_sum": 3.4,
-      "precipitation_probability": 70,
-      "wind_speed_max": 8.1,
-      "uv_index_max": 2.5,
-      "weather_code": 61
-    }
+    { "day": "2026-10-20", "temp_min": 6.2, "temp_max": 14.8, "precipitation_sum": 3.4,
+      "precipitation_probability": 70, "wind_speed_max": 8.1, "uv_index_max": 2.5, "weather_code": 61 }
+  ],
+  "alerts": [
+    { "level": "warning", "text": "☔ Візьміть парасольку!" }
   ],
   "checklist": [
     { "category": "Одяг", "item": "Тепла куртка", "reason": "Мінімальна температура 6 °C" },
-    { "category": "Аксесуари", "item": "Парасолька", "reason": "Ймовірність дощу 70 %" },
-    { "category": "Документи", "item": "Паспорт / ID-картка", "reason": "Завжди" }
+    { "category": "Аксесуари", "item": "Парасолька", "reason": "Ймовірність опадів до 70 %" }
   ]
 }
 ```
 
-Помилки: `404` — місто не знайдено; `502` — Open-Meteo недоступний.
+Помилки: `404` - місто не знайдено; `502` - Open-Meteo недоступний або повернув некоректні дані.
 
-### `POST /api/v1/trips/{trip_id}/send`
+### `POST /api/v1/tick`
 
-Запит (свій `chat_id` користувач отримує від бота у відповідь на `/start`):
-
-```json
-{ "chat_id": 123456789 }
-```
-
-Відповідь: `{ "sent": true }`
+Викликається за розкладом кожні 10 хв. Без правильного `X-Cron-Secret` - `403`.
+Надсилає ранковий прогноз підписникам, у яких настала обрана година, і раз на годину перевіряє
+небезпечну погоду. Відповідь: `{ "ok": true, "subscriptions": 3 }`.
 
 ### `POST /telegram/webhook`
 
-Викликає сам Telegram. Запит повинен містити заголовок `X-Telegram-Bot-Api-Secret-Token`, рівний `TELEGRAM_WEBHOOK_SECRET`, інакше відповідь `403`.
-
-Команди бота: `/start` (привітання + `chat_id`), `/help`, `/plan Львів 2026-10-20 2026-10-23`.
+Викликає сам Telegram. Без правильного секретного заголовка - `403`.
+Команди бота: `/start`, `/help`, `/weather`, `/plan`, `/subscribe`, `/me`, `/unsubscribe`, `/simulate`.
 
 ## Звернення до зовнішніх API
 

@@ -1,10 +1,9 @@
-"""Схеми даних API (Pydantic). На їх основі FastAPI будує OpenAPI-специфікацію."""
 from datetime import date, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-FORECAST_DAYS_LIMIT = 16  # Open-Meteo дає прогноз максимум на 16 днів
+FORECAST_DAYS_LIMIT = 16
 
 
 class HealthResponse(BaseModel):
@@ -55,20 +54,21 @@ class ChecklistItem(BaseModel):
     reason: str = Field(examples=["Ймовірність дощу 70 %"])
 
 
+class AlertOut(BaseModel):
+    level: Literal["info", "warning", "danger"]
+    text: str = Field(examples=["☔ Візьміть парасольку!"])
+
+
 class PlanResponse(BaseModel):
-    trip_id: str = Field(examples=["3f9c2a1e-7b4d-4c8e-9a51-2d6f0b8e1c33"])
     city: City
     days: list[DayForecast]
+    alerts: list[AlertOut]
     checklist: list[ChecklistItem]
 
 
-class SendRequest(BaseModel):
-    chat_id: int = Field(description="Telegram chat_id (бот повідомляє його у відповідь на /start)",
-                         examples=[123456789])
-
-
-class SendResponse(BaseModel):
-    sent: bool = True
+class TickResponse(BaseModel):
+    ok: bool = True
+    subscriptions: int = Field(examples=[3])
 
 
 class ErrorResponse(BaseModel):

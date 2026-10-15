@@ -1,5 +1,3 @@
-"""Налаштування застосунку. Значення читаються з файлу .env / змінних оточення,
-тому секрети (токени) ніколи не зберігаються в коді."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,14 +7,16 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     telegram_webhook_secret: str = ""
+    cron_secret: str = ""
     app_base_url: str = "http://localhost:8000"
+    render_external_url: str = ""
     database_url: str = "sqlite:///./data/app.db"
     timezone: str = "Europe/Kyiv"
-    watch_interval_minutes: int = 60   # як часто перевіряти прогноз на небезпечну погоду
+    watch_interval_minutes: int = 60
 
     @property
-    def sqlite_path(self) -> str:
-        return self.database_url.removeprefix("sqlite:///")
+    def public_url(self) -> str:
+        return (self.render_external_url or self.app_base_url).rstrip("/")
 
 
 settings = Settings()

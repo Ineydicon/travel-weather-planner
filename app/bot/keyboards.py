@@ -1,4 +1,3 @@
-"""Клавіатури бота: Reply-клавіатура (головне меню) та Inline-кнопки швидкого вибору."""
 from app.services.simulation import SCENARIOS
 
 BTN_TODAY = "🌤 Погода сьогодні"
