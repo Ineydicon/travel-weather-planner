@@ -169,3 +169,29 @@ def test_openstreetmap_fallback_for_foreign_names():
         return httpx.Response(200, json={})
     city = asyncio.run(search_cities("Лісабон", count=1, client=mock_client(handler)))[0]
     assert city.country == "Португалія" and round(city.longitude, 1) == -9.1
+
+
+def test_rate_limited_geocoding_falls_back_to_openstreetmap():
+    def handler(request):
+        if request.url.host == "nominatim.openstreetmap.org":
+            return httpx.Response(200, json=[{"name": "Львів", "lat": "49.84", "lon": "24.03",
+                                              "address": {"country": "Україна"}}])
+        return httpx.Response(429, json={"reason": "Too many requests"})
+    city = asyncio.run(search_cities("Львів", count=1, client=mock_client(handler)))[0]
+    assert city.name == "Львів"
+
+
+def test_rate_limited_forecast_falls_back_to_met_norway():
+    def handler(request):
+        if request.url.host == "api.met.no":
+            return httpx.Response(200, json={"properties": {"timeseries": [{
+                "time": "2026-10-15T09:00:00Z",
+                "data": {"instant": {"details": {"air_temperature": 11.0, "wind_speed": 4.0,
+                                                 "ultraviolet_index_clear_sky": 2.0}},
+                         "next_1_hours": {"summary": {"symbol_code": "lightrain"},
+                                          "details": {"precipitation_amount": 1.2,
+                                                      "probability_of_precipitation": 70}}}}]}})
+        return httpx.Response(429, json={"reason": "Too many requests"})
+    days = asyncio.run(get_forecast(CITY, date(2026, 10, 15), date(2026, 10, 15),
+                                    client=mock_client(handler)))
+    assert days[0].weather_code == 61 and days[0].precipitation_probability == 70

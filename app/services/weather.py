@@ -1,6 +1,7 @@
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -9,7 +10,8 @@ from app.schemas import City, DayForecast
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_HEADERS = {"User-Agent": "TravelWeatherPlanner/1.0 (github.com/Ineydicon/travel-weather-planner)"}
+MET_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
+USER_AGENT = {"User-Agent": "TravelWeatherPlanner/1.0 (github.com/Ineydicon/travel-weather-planner)"}
 TIMEOUT = httpx.Timeout(10.0)
 
 DAILY_FIELDS = [
@@ -135,17 +137,20 @@ async def search_cities(name: str, count: int = 5,
     variants = [query]
     if re.search("[а-яіїєґё]", query, re.IGNORECASE):
         variants.append(transliterate(query))
-    results = []
+    results, error = [], None
     async with _client(client) as c:
-        for variant in variants:
-            params = {"name": variant, "count": max(count, 10), "language": "uk", "format": "json"}
-            results = (await _get_json(c, GEOCODING_URL, params)).get("results") or []
-            if results:
-                break
+        try:
+            for variant in variants:
+                params = {"name": variant, "count": max(count, 10), "language": "uk", "format": "json"}
+                results = (await _get_json(c, GEOCODING_URL, params)).get("results") or []
+                if results:
+                    break
+        except WeatherServiceError as e:
+            error = e
         if not results:
             cities = await _search_osm(c, query, count)
             if not cities:
-                raise CityNotFoundError(f"Місто «{name}» не знайдено. Перевірте назву.")
+                raise error or CityNotFoundError(f"Місто «{name}» не знайдено. Перевірте назву.")
             _cache_set(key, cities)
             return cities
 
@@ -169,7 +174,7 @@ async def _search_osm(c: httpx.AsyncClient, query: str, count: int) -> list[City
     params = {"q": query, "format": "jsonv2", "limit": count, "featureType": "settlement",
               "addressdetails": 1, "accept-language": "uk"}
     try:
-        data = await _get_json(c, NOMINATIM_URL, params, NOMINATIM_HEADERS)
+        data = await _get_json(c, NOMINATIM_URL, params, USER_AGENT)
     except WeatherServiceError:
         return []
     cities = []
@@ -192,6 +197,20 @@ async def get_forecast(city: City, date_from: date, date_to: date,
     if client is None and (cached := _cache_get(key)) is not None:
         return cached
 
+    async with _client(client) as c:
+        try:
+            days = await _forecast_open_meteo(c, city, date_from, date_to)
+        except WeatherServiceError as e:
+            try:
+                days = await _forecast_met(c, city, date_from, date_to)
+            except WeatherServiceError:
+                raise e
+    _cache_set(key, days)
+    return days
+
+
+async def _forecast_open_meteo(c: httpx.AsyncClient, city: City, date_from: date,
+                               date_to: date) -> list[DayForecast]:
     params = {
         "latitude": city.latitude,
         "longitude": city.longitude,
@@ -201,8 +220,7 @@ async def get_forecast(city: City, date_from: date, date_to: date,
         "start_date": date_from.isoformat(),
         "end_date": date_to.isoformat(),
     }
-    async with _client(client) as c:
-        data = await _get_json(c, FORECAST_URL, params)
+    data = await _get_json(c, FORECAST_URL, params)
 
     daily = data.get("daily")
     if not daily or "time" not in daily:
@@ -212,7 +230,7 @@ async def get_forecast(city: City, date_from: date, date_to: date,
         v = daily.get(field, [None] * len(daily["time"]))[i]
         return default if v is None else v
 
-    days = [
+    return [
         DayForecast(
             day=day,
             temp_min=value("temperature_2m_min", i),
@@ -225,8 +243,65 @@ async def get_forecast(city: City, date_from: date, date_to: date,
         )
         for i, day in enumerate(daily["time"])
     ]
-    _cache_set(key, days)
-    return days
+
+
+# Символи MET Norway -> коди WMO (як у Open-Meteo), від найнебезпечнішого
+MET_SYMBOLS = [("thunder", 95), ("heavysnow", 75), ("lightsnow", 71), ("snow", 73),
+               ("sleet", 66), ("heavyrain", 65), ("lightrain", 61), ("rainshowers", 80),
+               ("rain", 63), ("fog", 45), ("cloudy", 3), ("partlycloudy", 2),
+               ("fair", 1), ("clearsky", 0)]
+
+
+def _met_code(symbol: str) -> tuple[int, int]:
+    for rank, (name, code) in enumerate(MET_SYMBOLS):
+        if symbol.startswith(name) if name == "cloudy" else name in symbol:
+            return rank, code
+    return len(MET_SYMBOLS), 3
+
+
+def _city_tz(city: City):
+    try:
+        return ZoneInfo(city.timezone)
+    except Exception:
+        return timezone(timedelta(hours=round(city.longitude / 15)))
+
+
+async def _forecast_met(c: httpx.AsyncClient, city: City, date_from: date,
+                        date_to: date) -> list[DayForecast]:
+    params = {"lat": round(city.latitude, 4), "lon": round(city.longitude, 4)}
+    data = await _get_json(c, MET_URL, params, USER_AGENT)
+    tz = _city_tz(city)
+    days: dict[date, dict] = {}
+    for step in data.get("properties", {}).get("timeseries", []):
+        local = datetime.fromisoformat(step["time"].replace("Z", "+00:00")).astimezone(tz)
+        if not date_from <= local.date() <= date_to:
+            continue
+        d = days.setdefault(local.date(), {"t": [], "rain": 0.0, "prob": 0, "wind": 0.0,
+                                           "uv": 0.0, "symbol": (len(MET_SYMBOLS), 3)})
+        now = step["data"]["instant"]["details"]
+        d["t"].append(now.get("air_temperature", 0))
+        d["wind"] = max(d["wind"], now.get("wind_speed", 0))
+        d["uv"] = max(d["uv"], now.get("ultraviolet_index_clear_sky", 0))
+        period = step["data"].get("next_1_hours") or step["data"].get("next_6_hours") or {}
+        details = period.get("details", {})
+        d["rain"] += details.get("precipitation_amount", 0)
+        d["prob"] = max(d["prob"], int(details.get("probability_of_precipitation", 0)))
+        if symbol := period.get("summary", {}).get("symbol_code"):
+            d["symbol"] = min(d["symbol"], _met_code(symbol))
+
+    result = []
+    day = date_from
+    while day <= date_to:
+        if day not in days:
+            raise WeatherServiceError("Резервний прогноз (MET Norway) доступний лише на ~9 днів.")
+        d = days[day]
+        result.append(DayForecast(day=day, temp_min=min(d["t"]), temp_max=max(d["t"]),
+                                  precipitation_sum=round(d["rain"], 1),
+                                  precipitation_probability=d["prob"],
+                                  wind_speed_max=d["wind"], uv_index_max=d["uv"],
+                                  weather_code=d["symbol"][1]))
+        day += timedelta(days=1)
+    return result
 
 
 class _client:
