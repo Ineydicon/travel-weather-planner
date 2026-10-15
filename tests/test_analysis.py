@@ -79,3 +79,11 @@ def test_validate_rejects_all_invalid():
 def test_simulation_scenarios(name, expected):
     days = validate_forecast(scenario_forecast(name))
     assert expected.lower() in texts(days).lower()
+
+
+def test_umbrella_reason_matches_cause():
+    from app.services.packing import build_checklist
+    reason = lambda d: next(i.reason for i in build_checklist([d]) if i.item == "Парасолька")
+    assert "Ймовірність" in reason(day(precipitation_probability=80))
+    assert "мм" in reason(day(precipitation_sum=3))
+    assert reason(day(weather_code=65)) == "За прогнозом дощ"

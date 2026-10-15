@@ -1,4 +1,5 @@
 from app.schemas import ChecklistItem, DayForecast
+from app.services.analysis import RAIN_CODES
 
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
 
@@ -32,9 +33,15 @@ def build_checklist(days: list[DayForecast]) -> list[ChecklistItem]:
         add("Одяг", ["Легкий одяг", "Головний убір"], f"Максимальна температура {t_max:.0f} °C")
         add("Здоров'я", ["Пляшка для води"], f"Спека до {t_max:.0f} °C")
 
-    if rain_prob >= 50 or rain_sum >= 1:
-        add("Аксесуари", ["Парасолька", "Водонепроникне взуття"],
-            f"Ймовірність опадів до {rain_prob} %")
+    rainy_day = any(d.weather_code in RAIN_CODES for d in days)
+    if rain_prob >= 50 or rain_sum >= 1 or rainy_day:
+        if rain_prob >= 50:
+            reason = f"Ймовірність опадів до {rain_prob} %"
+        elif rain_sum >= 1:
+            reason = f"Опади до {rain_sum:.0f} мм"
+        else:
+            reason = "За прогнозом дощ"
+        add("Аксесуари", ["Парасолька", "Водонепроникне взуття"], reason)
     if snow:
         add("Одяг", ["Зимове взуття з протектором"], "Очікується сніг")
     if wind >= 10:

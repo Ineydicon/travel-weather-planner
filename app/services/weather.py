@@ -285,7 +285,11 @@ async def _forecast_met(c: httpx.AsyncClient, city: City, date_from: date,
         period = step["data"].get("next_1_hours") or step["data"].get("next_6_hours") or {}
         details = period.get("details", {})
         d["rain"] += details.get("precipitation_amount", 0)
-        d["prob"] = max(d["prob"], int(details.get("probability_of_precipitation", 0)))
+        amount = details.get("precipitation_amount", 0)
+        prob = details.get("probability_of_precipitation")
+        if prob is None:  # у 6-годинних кроках MET Norway ймовірності немає
+            prob = 80 if amount >= 2 else 60 if amount > 0 else 0
+        d["prob"] = max(d["prob"], int(prob))
         if symbol := period.get("summary", {}).get("symbol_code"):
             d["symbol"] = min(d["symbol"], _met_code(symbol))
 
