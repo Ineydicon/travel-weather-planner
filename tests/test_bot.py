@@ -184,3 +184,9 @@ def test_storage_sqlite_roundtrip(tmp_path=None):
     sub = s2.get(42)
     assert sub.city.name == "Київ" and sub.hour == 7 and sub.last_sent == date(2026, 10, 15)
     assert s2.delete(42) and s2.get(42) is None
+
+
+def test_greeting_depends_on_hour():
+    from app.bot.logic import greeting
+    assert "ранку" in greeting(7) and "день" in greeting(13)
+    assert "вечір" in greeting(18) and "ночі" in greeting(2)

@@ -63,6 +63,16 @@ def parse_date(text: str, today: date) -> date:
     raise UserError(f"Не розумію дату «{text}». Приклад: 20.10 або 2026-10-20")
 
 
+def greeting(hour: int) -> str:
+    if 5 <= hour < 12:
+        return "☀️ Доброго ранку!"
+    if 12 <= hour < 18:
+        return "🌤 Добрий день!"
+    if 18 <= hour < 23:
+        return "🌆 Добрий вечір!"
+    return "🌙 Доброї ночі!"
+
+
 class WeatherBot:
     def __init__(self, api: BotApi, storage: SubscriptionStorage, tz: str = "Europe/Kyiv",
                  search_cities: Callable[..., Awaitable[list[City]]] = weather.search_cities,
@@ -303,7 +313,7 @@ class WeatherBot:
             await self.api.send(chat_id, format_alert_message(DEMO_CITY, alerts))
 
     async def _send_morning(self, sub: Subscription) -> None:
-        alerts = await self._send_today(sub.chat_id, sub.city, "☀️ Доброго ранку!")
+        alerts = await self._send_today(sub.chat_id, sub.city, greeting(sub.hour))
         today = self.today()
         self.storage.mark_sent(sub.chat_id, today)
         if has_severe(alerts):

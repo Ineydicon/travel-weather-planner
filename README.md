@@ -4,7 +4,7 @@ Telegram-бот, який аналізує прогноз погоди й під
 - **на запит** - погода на сьогодні або план поїздки з чек-листом речей;
 - **за розкладом** - щоранку в обраний час надсилає прогноз, а вдень попереджає про небезпечну погоду (гроза, штормовий вітер, мороз, спека).
 
-**Telegram-бот:** [@trip_weather_helper_bot](https://t.me/trip_weather_helper_bot) · **Вебсайт:** _посилання з'явиться після розгортання_
+**Telegram-бот:** [@trip_weather_helper_bot](https://t.me/trip_weather_helper_bot) · **Вебсайт:** <https://travel-weather-planner-2pxm.onrender.com>
 
 ## 📐 Архітектура системи
 
@@ -60,6 +60,26 @@ Telegram-бот, який аналізує прогноз погоди й під
 - [ ] Звіт і презентація
 
 ## 📸 Результати
+
+### Хмарне розгортання (Render + GitHub Actions)
+
+Сервіс у статусі **Live** (Docker-образ, webhook зареєстровано, база PostgreSQL) та планувальник розсилки в GitHub Actions:
+
+<p>
+  <img src="docs/screenshots/render-live.png" alt="Render: Live" width="49%">
+  <img src="docs/screenshots/github-actions.png" alt="GitHub Actions: Scheduler" width="49%">
+</p>
+
+Вебсайт і бот, що працюють із хмари:
+
+<p>
+  <img src="docs/screenshots/cloud-website.png" alt="Вебсайт" width="58%">
+  <img src="docs/screenshots/cloud-bot.png" alt="Бот у хмарі" width="40%">
+</p>
+
+Розсилка за розкладом (бот надіслав повідомлення сам, у вибраний підписником час):
+
+<img src="docs/screenshots/cloud-scheduled.png" alt="Розсилка за розкладом" width="40%">
 
 ### Telegram-бот (`python bot.py`)
 
