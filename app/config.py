@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""
     app_base_url: str = "http://localhost:8000"
     database_url: str = "sqlite:///./data/app.db"
+    timezone: str = "Europe/Kyiv"
+    watch_interval_minutes: int = 60   # як часто перевіряти прогноз на небезпечну погоду
+
+    @property
+    def sqlite_path(self) -> str:
+        return self.database_url.removeprefix("sqlite:///")
 
 
 settings = Settings()

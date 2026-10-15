@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.schemas import PlanRequest
+from app.services.analysis import InvalidForecastError, build_alerts, validate_forecast
 from app.services.formatter import format_plan_message
 from app.services.notifier import TelegramError, find_chats, send_message
 from app.services.packing import build_checklist
@@ -46,11 +47,15 @@ async def run(city_name: str, date_from: date, date_to: date) -> None:
         print(f"      {d.day:%d.%m}: {d.temp_min:+.0f}…{d.temp_max:+.0f} °C, "
               f"опади {d.precipitation_probability} %, вітер {d.wind_speed_max:.0f} м/с")
 
-    # 3. Обробка даних
-    step(3, "Формування чек-листа")
+    # 3. Обробка даних: валідація -> аналіз (статуси) -> чек-ліст
+    step(3, "Аналіз даних і формування чек-листа")
+    days = validate_forecast(days)
+    alerts = build_alerts(days)
+    for a in alerts:
+        print(f"      [{a.level}] {a.text}")
     checklist = build_checklist(days)
     print(f"      OK: {len(checklist)} речей")
-    message = format_plan_message(city, days, checklist)
+    message = format_plan_message(city, days, checklist, alerts)
 
     # 4. API 2: надсилання в Telegram
     step(4, "Надсилання в Telegram (Bot API sendMessage)")
@@ -102,6 +107,8 @@ def main() -> int:
             err["msg"].removeprefix("Value error, ") for err in e.errors()))
     except WeatherServiceError as e:
         print(f"ПОМИЛКА Open-Meteo: {e}")
+    except InvalidForecastError as e:
+        print(f"ПОМИЛКА даних: {e}")
     except TelegramError as e:
         print(f"ПОМИЛКА Telegram: {e}")
     except KeyboardInterrupt:

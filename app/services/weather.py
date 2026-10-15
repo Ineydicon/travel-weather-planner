@@ -4,6 +4,7 @@
 мережеві збої, тайм-аути та статуси, відмінні від 200, перетворюються
 на WeatherServiceError із зрозумілим повідомленням.
 """
+import time
 from datetime import date
 
 import httpx
@@ -23,6 +24,21 @@ DAILY_FIELDS = [
     "uv_index_max",
     "weather_code",
 ]
+
+
+CACHE_TTL_SECONDS = 30 * 60  # не частіше ніж раз на 30 хв для одного міста/дат
+_cache: dict[tuple, tuple[float, object]] = {}
+
+
+def _cache_get(key: tuple):
+    hit = _cache.get(key)
+    if hit and time.monotonic() - hit[0] < CACHE_TTL_SECONDS:
+        return hit[1]
+    return None
+
+
+def _cache_set(key: tuple, value) -> None:
+    _cache[key] = (time.monotonic(), value)
 
 
 class WeatherServiceError(Exception):
@@ -60,6 +76,10 @@ async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> dict:
 async def search_cities(name: str, count: int = 5,
                         client: httpx.AsyncClient | None = None) -> list[City]:
     """Повертає список міст за назвою. Якщо нічого не знайдено — CityNotFoundError."""
+    key = ("city", name.strip().lower(), count)
+    if client is None and (cached := _cache_get(key)) is not None:
+        return cached
+
     params = {"name": name, "count": count, "language": "uk", "format": "json"}
     async with _client(client) as c:
         data = await _get_json(c, GEOCODING_URL, params)
@@ -68,7 +88,7 @@ async def search_cities(name: str, count: int = 5,
     if not results:
         raise CityNotFoundError(f"Місто «{name}» не знайдено. Перевірте назву.")
 
-    return [
+    cities = [
         City(
             name=r["name"],
             country=r.get("country", ""),
@@ -79,11 +99,17 @@ async def search_cities(name: str, count: int = 5,
         )
         for r in results
     ]
+    _cache_set(key, cities)
+    return cities
 
 
 async def get_forecast(city: City, date_from: date, date_to: date,
                        client: httpx.AsyncClient | None = None) -> list[DayForecast]:
-    """Повертає щоденний прогноз для міста на вказані дати."""
+    """Повертає щоденний прогноз для міста на вказані дати (з кешем на 30 хв)."""
+    key = ("forecast", round(city.latitude, 2), round(city.longitude, 2), date_from, date_to)
+    if client is None and (cached := _cache_get(key)) is not None:
+        return cached
+
     params = {
         "latitude": city.latitude,
         "longitude": city.longitude,
@@ -104,7 +130,7 @@ async def get_forecast(city: City, date_from: date, date_to: date,
         v = daily.get(field, [None] * len(daily["time"]))[i]
         return default if v is None else v
 
-    return [
+    days = [
         DayForecast(
             day=day,
             temp_min=value("temperature_2m_min", i),
@@ -117,6 +143,8 @@ async def get_forecast(city: City, date_from: date, date_to: date,
         )
         for i, day in enumerate(daily["time"])
     ]
+    _cache_set(key, days)
+    return days
 
 
 class _client:

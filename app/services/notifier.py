@@ -5,7 +5,6 @@
 import httpx
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
-TIMEOUT = httpx.Timeout(10.0)
 
 
 class TelegramError(Exception):
@@ -13,10 +12,10 @@ class TelegramError(Exception):
 
 
 async def _call(token: str, method: str, payload: dict,
-                client: httpx.AsyncClient | None = None) -> dict:
+                client: httpx.AsyncClient | None = None, timeout: float = 10.0) -> dict:
     url = API_URL.format(token=token, method=method)
     own = client is None
-    c = client or httpx.AsyncClient(timeout=TIMEOUT)
+    c = client or httpx.AsyncClient(timeout=httpx.Timeout(timeout))
     try:
         response = await c.post(url, json=payload)
     except httpx.TimeoutException:
@@ -48,8 +47,37 @@ async def _call(token: str, method: str, payload: dict,
 
 
 async def send_message(token: str, chat_id: int | str, text: str,
-                       client: httpx.AsyncClient | None = None) -> None:
-    await _call(token, "sendMessage", {"chat_id": chat_id, "text": text}, client)
+                       client: httpx.AsyncClient | None = None,
+                       reply_markup: dict | None = None) -> None:
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    await _call(token, "sendMessage", payload, client)
+
+
+async def answer_callback(token: str, callback_id: str, text: str = "") -> None:
+    """Прибирає «годинник» на натиснутій inline-кнопці."""
+    await _call(token, "answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+
+
+async def get_updates(token: str, offset: int | None = None, timeout: int = 25) -> list[dict]:
+    """Long polling: Telegram тримає з'єднання до `timeout` секунд, поки не з'явиться повідомлення."""
+    payload = {"timeout": timeout, "allowed_updates": ["message", "callback_query"]}
+    if offset is not None:
+        payload["offset"] = offset
+    data = await _call(token, "getUpdates", payload, timeout=timeout + 10)
+    return data.get("result", [])
+
+
+async def delete_webhook(token: str) -> None:
+    """Webhook і long polling не можуть працювати одночасно — для локального запуску вимикаємо webhook."""
+    await _call(token, "deleteWebhook", {})
+
+
+async def set_commands(token: str, commands: list[tuple[str, str]]) -> None:
+    """Реєструє меню команд, яке Telegram показує біля поля вводу."""
+    await _call(token, "setMyCommands",
+                {"commands": [{"command": c, "description": d} for c, d in commands]})
 
 
 async def find_chats(token: str, client: httpx.AsyncClient | None = None) -> list[tuple[int, str]]:
