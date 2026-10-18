@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
 from app.bot import keyboards as kb
-from app.schemas import City, DayForecast, PlanRequest
+from app.schemas import City, DayForecast, DayPart, PlanRequest
 from app.services import weather
 from app.services.analysis import InvalidForecastError, build_alerts, has_severe, validate_forecast
 from app.services.formatter import format_alert_message, format_plan_message, format_today_message
@@ -78,12 +78,14 @@ class WeatherBot:
     def __init__(self, api: BotApi, storage: SubscriptionStorage, tz: str = "Europe/Kyiv",
                  search_cities: Callable[..., Awaitable[list[City]]] = weather.search_cities,
                  get_forecast: Callable[..., Awaitable[list[DayForecast]]] = weather.get_forecast,
+                 get_day_parts: Callable[..., Awaitable[list[DayPart]]] = weather.get_day_parts,
                  watch_interval: timedelta = timedelta(hours=1)):
         self.api = api
         self.storage = storage
         self.tz = ZoneInfo(tz)
         self.search_cities = search_cities
         self.get_forecast = get_forecast
+        self.get_day_parts = get_day_parts
         self.watch_interval = watch_interval
         self.state: dict[int, dict] = {}
         self._last_watch: datetime | None = None
@@ -207,7 +209,12 @@ class WeatherBot:
         today = self.today()
         days = await self._forecast(city, today, today)
         alerts = build_alerts(days)
-        text = format_today_message(city, days[0], build_checklist(days), alerts, greeting)
+        try:
+            parts = await self.get_day_parts(city, today)
+        except Exception as e:
+            log.warning("погодинний прогноз недоступний: %s", e)
+            parts = None
+        text = format_today_message(city, days[0], build_checklist(days), alerts, greeting, parts)
         await self.api.send(chat_id, text, kb.MAIN_MENU)
         return alerts
 

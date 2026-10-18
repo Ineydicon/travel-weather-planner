@@ -48,6 +48,14 @@ class DayForecast(BaseModel):
     weather_code: int = Field(description="Код погоди WMO", examples=[61])
 
 
+class DayPart(BaseModel):
+    name: str = Field(examples=["Ранок"])
+    hour: int = Field(examples=[8])
+    temp: float = Field(description="°C", examples=[9.5])
+    precipitation_probability: int = Field(description="%", examples=[40])
+    weather_code: int = Field(examples=[3])
+
+
 class ChecklistItem(BaseModel):
     category: Literal["Одяг", "Аксесуари", "Здоров'я", "Документи"]
     item: str = Field(examples=["Парасолька"])

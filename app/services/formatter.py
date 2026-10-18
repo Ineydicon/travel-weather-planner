@@ -1,4 +1,4 @@
-from app.schemas import ChecklistItem, City, DayForecast
+from app.schemas import ChecklistItem, City, DayForecast, DayPart
 from app.services.analysis import Alert
 
 WEATHER_TEXT = {
@@ -11,6 +11,8 @@ WEATHER_TEXT = {
     96: "гроза з градом", 99: "гроза з градом",
 }
 CATEGORY_ORDER = ["Одяг", "Аксесуари", "Здоров'я", "Документи"]
+PART_ICONS = {"Ранок": "🌅", "День": "🏙", "Вечір": "🌆"}
+WEAR_ACCESSORIES = {"Водонепроникне взуття"}
 
 
 def place_name(city: City) -> str:
@@ -29,11 +31,10 @@ def _alerts_block(alerts: list[Alert] | None) -> list[str]:
     return ["", "📢 Статус:"] + [a.text for a in alerts]
 
 
-def _checklist_block(checklist: list[ChecklistItem], skip_always: bool = False) -> list[str]:
+def _checklist_block(checklist: list[ChecklistItem]) -> list[str]:
     lines = []
     for category in CATEGORY_ORDER:
-        names = [i.item for i in checklist
-                 if i.category == category and not (skip_always and i.reason == "Завжди")]
+        names = [i.item for i in checklist if i.category == category]
         if names:
             lines.append(f"{category}: {', '.join(names)}")
     return lines
@@ -49,13 +50,35 @@ def format_plan_message(city: City, days: list[DayForecast], checklist: list[Che
     return "\n".join(lines)
 
 
+def part_line(p: DayPart) -> str:
+    sky = WEATHER_TEXT.get(p.weather_code, "-")
+    line = f"{PART_ICONS.get(p.name, '•')} {p.name}: {p.temp:+.0f} °C, {sky}"
+    if p.precipitation_probability >= 30:
+        line += f", опади {p.precipitation_probability} %"
+    return line
+
+
 def format_today_message(city: City, day: DayForecast, checklist: list[ChecklistItem],
-                         alerts: list[Alert], greeting: str = "🌤 Погода на сьогодні") -> str:
-    lines = [f"{greeting}", f"📍 {place_name(city)}, {day.day:%d.%m}", "", day_line(day)]
+                         alerts: list[Alert], greeting: str = "🌤 Погода на сьогодні",
+                         parts: list[DayPart] | None = None) -> str:
+    lines = [f"{greeting}", f"📍 {place_name(city)}, {day.day:%d.%m}", ""]
+    if parts:
+        lines += [part_line(p) for p in parts]
+        lines.append(f"💨 Вітер до {day.wind_speed_max:.0f} м/с")
+        temps = [p.temp for p in parts]
+        if max(temps) - min(temps) >= 7:
+            lines.append("Вранці й увечері значно прохолодніше, зручно одягнутися шарами.")
+    else:
+        lines.append(day_line(day))
     lines += _alerts_block(alerts)
-    items = _checklist_block(checklist, skip_always=True)
-    if items:
-        lines += ["", "🎒 Візьміть із собою:"] + items
+
+    items = [i for i in checklist if i.reason != "Завжди"]
+    wear = [i.item for i in items if i.category == "Одяг" or i.item in WEAR_ACCESSORIES]
+    take = [i.item for i in items if i.item not in wear]
+    if wear:
+        lines += ["", "👕 Що вдягнути:", ", ".join(wear)]
+    if take:
+        lines += ["", "🎒 Візьміть із собою:", ", ".join(take)]
     return "\n".join(lines)
 
 

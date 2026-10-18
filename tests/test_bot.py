@@ -5,7 +5,7 @@ import pytest
 
 from app.bot import keyboards as kb
 from app.bot.logic import WeatherBot, parse_date
-from app.schemas import City, DayForecast
+from app.schemas import City, DayForecast, DayPart
 from app.services.weather import CityNotFoundError
 from app.storage import SubscriptionStorage
 
@@ -44,11 +44,18 @@ def make_forecast(**kw):
     return fake_forecast
 
 
+async def fake_parts(city, day):
+    return [DayPart(name="Ранок", hour=8, temp=6, precipitation_probability=10, weather_code=3),
+            DayPart(name="День", hour=14, temp=14, precipitation_probability=70, weather_code=61),
+            DayPart(name="Вечір", hour=19, temp=9, precipitation_probability=40, weather_code=61)]
+
+
 @pytest.fixture
 def setup():
     api = FakeApi()
     storage = SubscriptionStorage(":memory:")
-    bot = WeatherBot(api, storage, search_cities=fake_search, get_forecast=make_forecast())
+    bot = WeatherBot(api, storage, search_cities=fake_search, get_forecast=make_forecast(),
+                     get_day_parts=fake_parts)
     return bot, api, storage
 
 
@@ -180,7 +187,8 @@ def test_scheduler_storm_warning_once():
     api = FakeApi()
     storage = SubscriptionStorage(":memory:")
     bot = WeatherBot(api, storage, search_cities=fake_search,
-                     get_forecast=make_forecast(weather_code=95), watch_interval=timedelta(0))
+                     get_forecast=make_forecast(weather_code=95), get_day_parts=fake_parts,
+                     watch_interval=timedelta(0))
     storage.upsert(1, KYIV, hour=7)
     noon = datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)
     run(bot.tick(noon))
@@ -212,3 +220,23 @@ def test_greeting_depends_on_hour():
     from app.bot.logic import greeting
     assert "ранку" in greeting(7) and "день" in greeting(13)
     assert "вечір" in greeting(18) and "ночі" in greeting(2)
+
+
+def test_today_message_has_day_parts(setup):
+    bot, api, _ = setup
+    run(bot.handle_update(msg("/weather Київ")))
+    text = api.last
+    assert "Ранок: +6 °C" in text and "День: +14 °C" in text and "Вечір: +9 °C" in text
+    assert "опади 70 %" in text and "опади 10 %" not in text
+    assert "Що вдягнути" in text and "Водонепроникне взуття" in text.split("Що вдягнути")[1]
+    assert "шарами" in text
+
+
+def test_today_message_without_day_parts():
+    async def broken(city, day):
+        raise RuntimeError("API недоступний")
+    api = FakeApi()
+    bot = WeatherBot(api, SubscriptionStorage(":memory:"), search_cities=fake_search,
+                     get_forecast=make_forecast(), get_day_parts=broken)
+    run(bot.handle_update(msg("/weather Київ")))
+    assert "+5…+12 °C" in api.last

@@ -8,8 +8,8 @@ from app.schemas import City, DayForecast
 from app.services.formatter import format_plan_message
 from app.services.notifier import TelegramError, send_message
 from app.services.packing import build_checklist
-from app.services.weather import (CityNotFoundError, WeatherServiceError, get_forecast,
-                                  search_cities)
+from app.services.weather import (CityNotFoundError, WeatherServiceError, get_day_parts,
+                                  get_forecast, search_cities)
 
 CITY = City(name="Кропивницький", country="Україна", region="Кіровоградська область",
             latitude=48.51, longitude=32.27, timezone="Europe/Kyiv")
@@ -195,3 +195,31 @@ def test_rate_limited_forecast_falls_back_to_met_norway():
     days = asyncio.run(get_forecast(CITY, date(2026, 10, 15), date(2026, 10, 15),
                                     client=mock_client(handler)))
     assert days[0].weather_code == 61 and days[0].precipitation_probability == 70
+
+
+def test_day_parts_from_open_meteo():
+    hours = [f"2026-10-15T{h:02d}:00" for h in range(24)]
+    def handler(request):
+        return httpx.Response(200, json={"hourly": {
+            "time": hours, "temperature_2m": [float(h) for h in range(24)],
+            "precipitation_probability": [h * 2 for h in range(24)],
+            "weather_code": [3] * 24}})
+    parts = asyncio.run(get_day_parts(CITY, date(2026, 10, 15), client=mock_client(handler)))
+    assert [(p.name, p.temp) for p in parts] == [("Ранок", 8), ("День", 14), ("Вечір", 19)]
+    assert parts[2].precipitation_probability == 38
+
+
+def test_day_parts_fall_back_to_met_norway():
+    def step(hour, temp):
+        return {"time": f"2026-10-15T{hour - 3:02d}:00:00Z",
+                "data": {"instant": {"details": {"air_temperature": temp}},
+                         "next_1_hours": {"summary": {"symbol_code": "rain"},
+                                          "details": {"precipitation_amount": 0.5}}}}
+    def handler(request):
+        if request.url.host == "api.met.no":
+            return httpx.Response(200, json={"properties": {"timeseries": [
+                step(12, 13.0), step(14, 15.0), step(19, 10.0)]}})
+        return httpx.Response(429, json={"reason": "Too many requests"})
+    parts = asyncio.run(get_day_parts(CITY, date(2026, 10, 15), client=mock_client(handler)))
+    assert [(p.name, p.temp) for p in parts] == [("День", 15), ("Вечір", 10)]
+    assert parts[0].weather_code == 63 and parts[0].precipitation_probability == 60

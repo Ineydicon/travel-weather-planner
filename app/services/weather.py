@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app.schemas import City, DayForecast
+from app.schemas import City, DayForecast, DayPart
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -306,6 +306,86 @@ async def _forecast_met(c: httpx.AsyncClient, city: City, date_from: date,
                                   weather_code=d["symbol"][1]))
         day += timedelta(days=1)
     return result
+
+
+DAY_PARTS = [("Ранок", 8), ("День", 14), ("Вечір", 19)]
+
+
+async def get_day_parts(city: City, day: date,
+                        client: httpx.AsyncClient | None = None) -> list[DayPart]:
+    key = ("parts", round(city.latitude, 2), round(city.longitude, 2), day)
+    if client is None and (cached := _cache_get(key)) is not None:
+        return cached
+
+    async with _client(client) as c:
+        try:
+            parts = await _parts_open_meteo(c, city, day)
+        except WeatherServiceError as e:
+            try:
+                parts = await _parts_met(c, city, day)
+            except WeatherServiceError:
+                raise e
+    _cache_set(key, parts)
+    return parts
+
+
+async def _parts_open_meteo(c: httpx.AsyncClient, city: City, day: date) -> list[DayPart]:
+    params = {
+        "latitude": city.latitude,
+        "longitude": city.longitude,
+        "hourly": "temperature_2m,precipitation_probability,weather_code",
+        "timezone": "auto",
+        "start_date": day.isoformat(),
+        "end_date": day.isoformat(),
+    }
+    hourly = (await _get_json(c, FORECAST_URL, params)).get("hourly") or {}
+    times = hourly.get("time") or []
+    parts = []
+    for name, hour in DAY_PARTS:
+        stamp = f"{day.isoformat()}T{hour:02d}:00"
+        if stamp not in times:
+            raise WeatherServiceError("Відповідь Open-Meteo не містить погодинного прогнозу.")
+        i = times.index(stamp)
+
+        def value(field: str):
+            v = (hourly.get(field) or [None] * len(times))[i]
+            return 0 if v is None else v
+
+        parts.append(DayPart(name=name, hour=hour, temp=value("temperature_2m"),
+                             precipitation_probability=int(value("precipitation_probability")),
+                             weather_code=int(value("weather_code"))))
+    return parts
+
+
+async def _parts_met(c: httpx.AsyncClient, city: City, day: date) -> list[DayPart]:
+    params = {"lat": round(city.latitude, 4), "lon": round(city.longitude, 4)}
+    data = await _get_json(c, MET_URL, params, USER_AGENT)
+    tz = _city_tz(city)
+    steps = []
+    for step in data.get("properties", {}).get("timeseries", []):
+        local = datetime.fromisoformat(step["time"].replace("Z", "+00:00")).astimezone(tz)
+        if local.date() == day:
+            steps.append((local.hour, step["data"]))
+    if not steps:
+        raise WeatherServiceError("Резервний прогноз (MET Norway) не містить цього дня.")
+    parts = []
+    for name, hour in DAY_PARTS:
+        step_hour, d = min(steps, key=lambda s: abs(s[0] - hour))
+        if abs(step_hour - hour) > 3:  # минулі години MET Norway не повертає
+            continue
+        period = d.get("next_1_hours") or d.get("next_6_hours") or {}
+        details = period.get("details", {})
+        prob = details.get("probability_of_precipitation")
+        if prob is None:
+            amount = details.get("precipitation_amount", 0)
+            prob = 80 if amount >= 2 else 60 if amount > 0 else 0
+        code = _met_code(period.get("summary", {}).get("symbol_code", "cloudy"))[1]
+        parts.append(DayPart(name=name, hour=hour,
+                             temp=d["instant"]["details"].get("air_temperature", 0),
+                             precipitation_probability=int(prob), weather_code=code))
+    if not parts:
+        raise WeatherServiceError("Резервний прогноз (MET Norway) не містить цього дня.")
+    return parts
 
 
 class _client:
