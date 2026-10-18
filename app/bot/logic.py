@@ -16,6 +16,7 @@ from app.services.simulation import DEMO_CITY, SCENARIOS, scenario_forecast
 from app.storage import Subscription, SubscriptionStorage
 
 log = logging.getLogger("bot")
+CATCH_UP_HOURS = 3
 
 HELP_TEXT = (
     "Я - Travel Weather Planner 🧳\n"
@@ -285,7 +286,7 @@ class WeatherBot:
         elif not sub:
             await self.api.send(chat_id, "Підписки немає. Налаштуйте: /subscribe")
         elif value == "now":
-            await self._send_morning(sub)
+            await self._send_today(chat_id, sub.city, "🌤 Погода на сьогодні")
         elif value == "city":
             self.state[chat_id] = {"step": "sub_city"}
             await self.api.send(chat_id, "🏙 Напишіть нове місто.")
@@ -312,9 +313,8 @@ class WeatherBot:
         if has_severe(alerts):
             await self.api.send(chat_id, format_alert_message(DEMO_CITY, alerts))
 
-    async def _send_morning(self, sub: Subscription) -> None:
+    async def _send_morning(self, sub: Subscription, today: date) -> None:
         alerts = await self._send_today(sub.chat_id, sub.city, greeting(sub.hour))
-        today = self.today()
         self.storage.mark_sent(sub.chat_id, today)
         if has_severe(alerts):
             self.storage.mark_alerted(sub.chat_id, today)
@@ -327,9 +327,10 @@ class WeatherBot:
 
         for sub in self.storage.all():
             try:
-                if local.hour == sub.hour and sub.last_sent != today:
+                # GitHub Actions може пропустити запуск, тому є запас у кілька годин
+                if sub.hour <= local.hour < sub.hour + CATCH_UP_HOURS and sub.last_sent != today:
                     log.info("розсилка: chat %s (%s)", sub.chat_id, sub.city.name)
-                    await self._send_morning(sub)
+                    await self._send_morning(sub, today)
                 elif watch_due and sub.last_alert != today and 6 <= local.hour <= 21:
                     days = await self._forecast(sub.city, today, today)
                     alerts = build_alerts(days)

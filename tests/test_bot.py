@@ -154,6 +154,28 @@ def test_scheduler_not_at_other_hour(setup):
     assert not any("Доброго ранку" in t for _, t, _ in api.sent)
 
 
+def test_scheduler_catches_up_missed_hour(setup):
+    bot, api, storage = setup
+    storage.upsert(1, KYIV, hour=7)
+    run(bot.tick(datetime(2026, 10, 15, 5, 40, tzinfo=timezone.utc)))
+    assert sum("Доброго ранку" in t for _, t, _ in api.sent) == 1
+
+
+def test_send_now_does_not_cancel_morning(setup):
+    bot, api, storage = setup
+    storage.upsert(1, KYIV, hour=7)
+    run(bot.handle_update(press("sub:now")))
+    run(bot.tick(datetime(2026, 10, 15, 4, 5, tzinfo=timezone.utc)))
+    assert sum("Доброго ранку" in t for _, t, _ in api.sent) == 1
+
+
+def test_scheduler_no_morning_too_late(setup):
+    bot, api, storage = setup
+    storage.upsert(1, KYIV, hour=7)
+    run(bot.tick(datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)))
+    assert not any("Доброго ранку" in t for _, t, _ in api.sent)
+
+
 def test_scheduler_storm_warning_once():
     api = FakeApi()
     storage = SubscriptionStorage(":memory:")
